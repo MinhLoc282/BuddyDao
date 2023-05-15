@@ -1,0 +1,36 @@
+{
+  "_format": "hh-sol-artifact-1",
+  "contractName": "SafeTransfer",
+  "sourceName": "contracts/BuddyDaoFatten.sol",
+  "abi": [
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "recieptor",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "token",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        }
+      ],
+      "name": "Redeem",
+      "type": "event"
+    }
+  ],
+  "bytecode": "0x6080604052348015600f57600080fd5b50603f80601d6000396000f3fe6080604052600080fdfea2646970667358221220fc6451192090dfb2ce298d6f37f32d3bc9ce09312da4213b82c3dadda8a3398864736f6c63430008120033",
+  "deployedBytecode": "0x6080604052600080fdfea2646970667358221220fc6451192090dfb2ce298d6f37f32d3bc9ce09312da4213b82c3dadda8a3398864736f6c63430008120033",
+  "linkReferences": {},
+  "deployedLinkReferences": {}
+}

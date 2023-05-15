@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.18;
+pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/security/Pausable.sol";
@@ -7,7 +7,7 @@ import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@chainlink/contracts/src/v0.8/AutomationCompatible.sol";
 import "./interface/IERC20.sol";
 import "./library/SafeTransfer.sol";
-import "@uniswap/v2-core/contracts/interfaces/IUniswapV2Pair.sol";
+import "./interface/IPancakeswapV2Factory.sol";
 
 contract BuddyDao is Ownable, Pausable, ReentrancyGuard, SafeTransfer, AutomationCompatibleInterface {
 
@@ -24,19 +24,20 @@ contract BuddyDao is Ownable, Pausable, ReentrancyGuard, SafeTransfer, Automatio
     address public ServiceFeeAddress;
     // Max Annual Rate or Monthly Interest Rate，Default is 100%
     uint256 public MaxFixedRate = 1e18;
-    uint64 constant private baseDecimal = 1e18;
+    uint256 constant baseDecimal = 1e18;
     // Default is Base Years APR
     uint256 public baseYearOrMonth = 365 days;
 
     // lend info
     struct Lender {
-        address Token;
+        // approve address
         address Address;
+        address Token;
         uint256 FixedRate;
         uint256 CreditLine;
         uint256 Amount;
+        // Whether to completely deauthorize
         bool isCancel;
-        string Alias;
     }
 
     // borrower info
@@ -46,9 +47,8 @@ contract BuddyDao is Ownable, Pausable, ReentrancyGuard, SafeTransfer, Automatio
         uint256 FixedRate;
         uint256 CreditLine;
         uint256 Amount;
-        uint256 BorrowStartTime;
+        // Whether to completely deauthorize
         bool isCancel;
-        string Alias;
     }
 
 
@@ -85,15 +85,17 @@ contract BuddyDao is Ownable, Pausable, ReentrancyGuard, SafeTransfer, Automatio
     event SetServiceFee(uint256 _old, uint256 _new);
     event SetServiceFeeAddress(address _oldAddress, address _newAddress);
     event SetMaxFixedRate(uint256 _oldFixedRate, uint256 _newFixedRate);
-    event Trust(address indexed _address, string _alias, address _token, uint256 indexed  _fixedRate, uint256 indexed _amount);
+    event Trust(address indexed _address, address _token, uint256 indexed  _fixedRate, uint256 indexed _amount);
     event ReduceTrust(address _approveAddress, uint256 _index, uint256 _cancelAmount);
     event WithdrawAssets(address _lendAddress, uint256 _index, uint256 _borrowerAmount);
     event Payment(address _lendAddress, uint256 _index, uint256 _payAmount);
 
 
-    constructor (uint256 _serviceFee) {
+    constructor (uint256 _serviceFee, address _serviceFeeAddress, uint256 _maxFixedRate) {
         require(_serviceFee != 0, "serviceFee must be a positive number");
         require(_serviceFee <= MaxFixedRate, "Cannot exceed the maximum interest rate");
+        ServiceFeeAddress = _serviceFeeAddress;
+        MaxFixedRate = _maxFixedRate;
         ServiceFee = _serviceFee;
         StartTimeInterval = block.timestamp;
     }
@@ -178,7 +180,7 @@ contract BuddyDao is Ownable, Pausable, ReentrancyGuard, SafeTransfer, Automatio
     }
 
 
-    function NewTrust(address _approveAddress, string memory _alias, address _token, uint256 _fixedRate, uint256 _amount) external nonReentrant whenNotPaused {
+    function NewTrust(address _approveAddress, address _token, uint256 _fixedRate, uint256 _amount) external nonReentrant whenNotPaused {
         require(_approveAddress != address(0), "_approveAddress is not a zero address");
         require(_token != address(0), "_token is not a zero address");
         require(_fixedRate <= MaxFixedRate, "Must be less than the maximum interest");
@@ -209,8 +211,7 @@ contract BuddyDao is Ownable, Pausable, ReentrancyGuard, SafeTransfer, Automatio
             FixedRate: _fixedRate,
             CreditLine: _amount,
             Amount:0,
-            isCancel: false,
-            Alias: _alias
+            isCancel: false
         }));
         // save borrower info
         Borrower[]  storage borrowerInfo = BorrowerData[_approveAddress][msg.sender];
@@ -220,12 +221,10 @@ contract BuddyDao is Ownable, Pausable, ReentrancyGuard, SafeTransfer, Automatio
             FixedRate: _fixedRate,
             CreditLine: _amount,
             Amount: 0,
-            BorrowStartTime:0,
-            isCancel: false,
-            Alias: ""
+            isCancel: false
         }));
         // log
-        emit Trust(_approveAddress, _alias, _token, _fixedRate, _amount);
+        emit Trust(_approveAddress, _token, _fixedRate, _amount);
     }
 
 
@@ -248,7 +247,7 @@ contract BuddyDao is Ownable, Pausable, ReentrancyGuard, SafeTransfer, Automatio
 
         require(!personalLenderInfo.isCancel, "The authorization id record has been cancelled");
         // Number of Cancellations <= Number of Trusts - Number of Lending
-        require(_cancelAmount <= personalLenderInfo.CreditLine - personalBorrowerInfo.Amount , "Cancellations cannot be greater than the number of authorizations");
+        require(_cancelAmount <= personalLenderInfo.CreditLine - personalBorrowerInfo.Amount , "The number of cancellations cannot be greater than the number of authorizations");
 
         if (_cancelAmount == personalLenderInfo.CreditLine) {
             // Complete cancellation
@@ -288,10 +287,6 @@ contract BuddyDao is Ownable, Pausable, ReentrancyGuard, SafeTransfer, Automatio
 
         // save borrower info
         personalBorrowerInfo.Amount = personalBorrowerInfo.Amount + _borrowerAmount;
-        //Add time stamp to start borrowing money and calculate interest
-        if (personalBorrowerInfo.BorrowStartTime == 0) {
-            personalBorrowerInfo.BorrowStartTime = block.timestamp;
-        }
 
         // save data
         Lender[]  storage lendInfo = LenderData[_lendAddress][msg.sender];
@@ -320,8 +315,43 @@ contract BuddyDao is Ownable, Pausable, ReentrancyGuard, SafeTransfer, Automatio
         // borrow token
         uint256 amount = getPayableAmount(personalBorrowerInfo.Token, personalBorrowerInfo.Creditors, msg.sender, _borrowerAmount);
         require(amount == _borrowerAmount, "The actual money lent is not the same as the money needed to be borrowed");
+
+        // check if token address equal to BUSD token address
+        if (personalBorrowerInfo.Token == 0xeD24FC36d5Ee211Ea25A80239Fb8C4Cfd80f12Ee) {
+            uint buddyDaoTokenPrice = getTokenPrice(_borrowerAmount);
+
+            // Check if the borrower has enough BuddyDaoToken balance to pay the service fee
+            uint serviceFeeInBuddyDao = (_borrowerAmount * ServiceFee * buddyDaoTokenPrice) / 1e36;
+            uint borrowerBuddyDaoBalance = IERC20(0x84E13D8aA38a8230DB2dAe46A6555a5DEec532e6).balanceOf(msg.sender);
+            if (borrowerBuddyDaoBalance >= serviceFeeInBuddyDao) {
+                // Transfer the service fee in BuddyDaoToken to the service fee address
+                IERC20(0x84E13D8aA38a8230DB2dAe46A6555a5DEec532e6).transferFrom(msg.sender, ServiceFeeAddress, serviceFeeInBuddyDao);
+            } else {
+                // Transfer the service fee in BUSD to the service fee address
+                uint serviceFeeInBusd = (_borrowerAmount * ServiceFee) / 1e18;
+                IERC20(personalBorrowerInfo.Token).transferFrom(msg.sender, ServiceFeeAddress, serviceFeeInBusd);
+            }
+            // Subtract the service fee from the borrower's withdrawal amount in BUSD
+            _borrowerAmount -= (_borrowerAmount * ServiceFee) / 1e18;
+        } else {
+            // When the token is not BUSD, transfer the service fee in the token to the service fee address
+            uint256 serviceFee = (_borrowerAmount * ServiceFee) / 1e18;
+            IERC20(personalBorrowerInfo.Token).transferFrom(msg.sender, ServiceFeeAddress, serviceFee);
+            // Subtract the service fee from the borrower's withdrawal amount
+            _borrowerAmount -= serviceFee;
+        }
         // log
         emit WithdrawAssets(_lendAddress, _index, _borrowerAmount);
+    }
+
+    function getTokenPrice(uint amount) public view returns (uint) {
+        IPancakePair pair = IPancakePair(0x57ae7f7700542d33184Ae5B8E879074ec77acbb2);
+        IERC20 token1 = IERC20(pair.token1());
+        (uint Res0, uint Res1,) = pair.getReserves();
+
+        // decimals
+        uint res0 = Res0 * (10**token1.decimals());
+        return (amount * res0) / Res1 / (10**token1.decimals()); // return amount of token0 needed to buy token1 (as a whole number)
     }
 
 
@@ -358,9 +388,6 @@ contract BuddyDao is Ownable, Pausable, ReentrancyGuard, SafeTransfer, Automatio
 
         // save borrower info
         personalBorrowerInfo.Amount = personalBorrowerInfo.Amount - _payAmount;
-        if (personalBorrowerInfo.Amount == 0) {
-            personalBorrowerInfo.BorrowStartTime = 0;
-        }
         // save  lend info
         Lender[]  storage lendInfo = LenderData[_lendAddress][msg.sender];
         uint256 lendInfoLength = lendInfo.length;
@@ -405,110 +432,62 @@ contract BuddyDao is Ownable, Pausable, ReentrancyGuard, SafeTransfer, Automatio
         return payAmount;
     }
 
-    
-    function calculateBuddyTokens(address pairAddress, uint256 _amount) public view returns (uint256) {
-        IUniswapV2Pair pair = IUniswapV2Pair(pairAddress);
-
-        (uint112 reserve0, uint112 reserve1, ) = pair.getReserves();
-
-        // determine which token is BuddyDaoToken and calculate its price in USD
-        address token0 = pair.token0();
-        uint256 priceInUSD;
-        if (token0 == 0x91167CA639eC2293847aCd09c75d5B3b4a6BF0E3) {
-            // calculate the price of BuddyDaoToken in USD using token1 as the reference token
-            priceInUSD = reserve1 * 1e18 / reserve0;
-        } else {
-            // calculate the price of BuddyDaoToken in USD using token0 as the reference token
-            priceInUSD = reserve0 * 1e18 / reserve1;
-        }
-
-        // calculate the service fee
-        uint256 serviceFee = _amount * ServiceFee / 100;
-
-        // calculate the number of BuddyDaoToken corresponding to the input amount of USD after service fee deduction
-        uint256 numBuddyTokens = (_amount - serviceFee) * 1e18 / priceInUSD;
-
-        return pair.decimals();
-    }
-
     // chainlink auto
     function checkUpkeep(bytes calldata) external view override whenNotPaused returns (bool upkeepNeeded, bytes memory){
         // Current time is greater than the time period
         if (block.timestamp > StartTimeInterval + TimeInterval) {
             upkeepNeeded = totalBorrower.length > 0;
-        } else {
-            upkeepNeeded = false;
         }
-        return (upkeepNeeded, bytes(""));
     }
 
     // chainlink logic
     function performUpkeep(bytes calldata) external override whenNotPaused {
+
         if (block.timestamp > StartTimeInterval + TimeInterval) {
             if (totalBorrower.length > 0) {
-                for (uint256 i; i < totalBorrower.length; ++i){
+                for (uint256 i = 0; i < totalBorrower.length; i++){
                     // todo:一个borrower借贷的数组数据
-                    address[] memory LendAddress = BorrowerArrary[totalBorrower[i]];
-                    for (uint256 j; j < LendAddress.length; ++j) {
-                        // Find borrower information
-                        Borrower[] memory data = BorrowerData[totalBorrower[i]][LendAddress[j]];
-                        if (data.length == 0) {
-                            continue;
-                        }
-                        uint256[] memory BorrowerAddressIndex = TotalBorrowerIndexArrary[totalBorrower[i]][LendAddress[j]];
-                        for (uint256 k; k < BorrowerAddressIndex.length; ++k) {
-                            for (uint256 index; index < data.length; ++index){
-                                if (data[index].isCancel){
-                                    continue;
-                                }
-                                if (data[index].Amount > 0 ){
-                                    // Calculate daily interest = Current number of borrowings * Daily Rate
-                                    uint256 dailyRate = calculatingInterest(LendAddress[j], totalBorrower[i], index, data[index].Amount);
-                                    // uint256 fixedRate = (data[index].Amount.mul(ServiceFee)).div(baseDecimal);
-                                    // Determine whether the lending user has sufficient balance to pay the fee
-                                    uint256 borrowerBalance = IERC20(data[index].Token).balanceOf(totalBorrower[i]);
-                                    if (borrowerBalance == 0 ){
-                                        continue;
-                                    }
-                                    // check allowance
-                                    uint256 allowBalance = IERC20(data[index].Token).allowance(totalBorrower[i], address(this));
-                                    if (allowBalance == 0){
-                                        continue;
-                                    }
-                                    uint256 rateAmount = calculatingActualInterest(borrowerBalance, allowBalance, dailyRate);
-                                    // payment fee
-                                    uint256 amount = getPayableAmount(data[index].Token, totalBorrower[i], LendAddress[j], rateAmount);
-                                    require(amount == rateAmount, "The actual amount and the deducted amount do not match");
-                                }
-                            }
-                        }
+                     address[] memory LendAddress = BorrowerArrary[totalBorrower[i]];
+                     for (uint256 j = 0; j < LendAddress.length; j++) {
+                         // Find borrower information
+                         Borrower[] memory data = BorrowerData[totalBorrower[i]][LendAddress[j]];
+                         if (data.length == 0) {
+                             continue;
+                         }
+                         uint256[] memory BorrowerAddressIndex = TotalBorrowerIndexArrary[totalBorrower[i]][LendAddress[j]];
+                         for (uint256 k = 0; k < BorrowerAddressIndex.length; k++) {
+                              for (uint256 index = 0; index < data.length; index++){
+                                  if (data[index].isCancel){
+                                      continue;
+                                  }
+                                  if (data[index].Amount > 0 ){
+                                      // Calculate daily interest = Current number of borrowings * Daily Rate
+                                      uint256 dailyRate = calculatingInterest(LendAddress[j], totalBorrower[i], index, data[index].Amount);
+                                      // uint256 fixedRate = (data[index].Amount.mul(ServiceFee)).div(baseDecimal);
+                                      // Determine whether the lending user has sufficient balance to pay the fee
+                                      uint256 borrowerBalance = IERC20(data[index].Token).balanceOf(totalBorrower[i]);
+                                      if (borrowerBalance == 0 ){
+                                          continue;
+                                      }
+                                      // check allowance
+                                      uint256 allowBalance = IERC20(data[index].Token).allowance(totalBorrower[i], address(this));
+                                      if (allowBalance == 0){
+                                          continue;
+                                      }
+                                      uint256 rateAmount = calculatingActualInterest(borrowerBalance, allowBalance, dailyRate);
+                                      // payment fee
+                                      uint256 amount = getPayableAmount(data[index].Token, totalBorrower[i], LendAddress[j], rateAmount);
+                                      require(amount == rateAmount, "The actual amount and the deducted amount do not match");
+                                  }
+                              }
+                           }
 
-                        }
-                    }
+                         }
+                     }
             }
             // Update the starting point of the current time period
             StartTimeInterval = block.timestamp;
         }
     }
+
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

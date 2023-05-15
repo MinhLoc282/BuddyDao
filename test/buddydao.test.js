@@ -6,8 +6,8 @@ const BN = require('bn.js');
 
 describe("BuddyDao", function (){
 
-    const serviceFee = "100000000000000000";
-    const maxFixedRate = "500000000000000000";
+    const serviceFee = "25000000000000000";
+    const maxFixedRate = "100000000000000000";
     const trustAmount = "10000000000000000000";
     const trustDoupleAmount = "20000000000000000000";
     const alias = "bob";
@@ -19,7 +19,7 @@ describe("BuddyDao", function (){
         const busdToken = await ethers.getContractFactory("BUSD");
         busdAddrress = await busdToken.deploy();
         const buddyDaoToken = await ethers.getContractFactory("BuddyDao");
-        buddyDaoAddress = await buddyDaoToken.deploy(serviceFee);
+        buddyDaoAddress = await buddyDaoToken.deploy(serviceFee, minter.address, maxFixedRate);
     });
 
     it("Lend authorizes trust operations", async function() {
