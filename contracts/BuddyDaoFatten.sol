@@ -1,6 +1,3 @@
-/**
- *Submitted for verification at BscScan.com on 2023-05-15
-*/
 
 // File: contracts/interface/IPancakeswapV2Factory.sol
 
@@ -1035,7 +1032,6 @@ contract BuddyDao is Ownable, Pausable, ReentrancyGuard, SafeTransfer, Automatio
         uint256 FixedRate;
         uint256 CreditLine;
         uint256 Amount;
-        string Alias;
         // Whether to completely deauthorize
         bool isCancel;
     }
@@ -1047,7 +1043,6 @@ contract BuddyDao is Ownable, Pausable, ReentrancyGuard, SafeTransfer, Automatio
         uint256 FixedRate;
         uint256 CreditLine;
         uint256 Amount;
-        string Alias;
         // Whether to completely deauthorize
         bool isCancel;
     }
@@ -1086,7 +1081,7 @@ contract BuddyDao is Ownable, Pausable, ReentrancyGuard, SafeTransfer, Automatio
     event SetServiceFee(uint256 _old, uint256 _new);
     event SetServiceFeeAddress(address _oldAddress, address _newAddress);
     event SetMaxFixedRate(uint256 _oldFixedRate, uint256 _newFixedRate);
-    event Trust(address indexed _address, string _alias, address _token, uint256 indexed  _fixedRate, uint256 indexed _amount);
+    event Trust(address indexed _address, address _token, uint256 indexed  _fixedRate, uint256 indexed _amount);
     event ReduceTrust(address _approveAddress, uint256 _index, uint256 _cancelAmount);
     event WithdrawAssets(address _lendAddress, uint256 _index, uint256 _borrowerAmount);
     event Payment(address _lendAddress, uint256 _index, uint256 _payAmount);
@@ -1181,7 +1176,7 @@ contract BuddyDao is Ownable, Pausable, ReentrancyGuard, SafeTransfer, Automatio
     }
 
 
-    function NewTrust(address _approveAddress, string memory _alias, address _token, uint256 _fixedRate, uint256 _amount) external nonReentrant whenNotPaused {
+    function NewTrust(address _approveAddress, address _token, uint256 _fixedRate, uint256 _amount) external nonReentrant whenNotPaused {
         require(_approveAddress != address(0), "_approveAddress is not a zero address");
         require(_token != address(0), "_token is not a zero address");
         require(_fixedRate <= MaxFixedRate, "Must be less than the maximum interest");
@@ -1209,7 +1204,6 @@ contract BuddyDao is Ownable, Pausable, ReentrancyGuard, SafeTransfer, Automatio
         lendInfo.push(Lender({
             Address: _approveAddress,
             Token: _token,
-            Alias: _alias,
             FixedRate: _fixedRate,
             CreditLine: _amount,
             Amount:0,
@@ -1220,14 +1214,13 @@ contract BuddyDao is Ownable, Pausable, ReentrancyGuard, SafeTransfer, Automatio
         borrowerInfo.push(Borrower({
             Creditors: msg.sender,
             Token: _token,
-            Alias: "",
             FixedRate: _fixedRate,
             CreditLine: _amount,
             Amount: 0,
             isCancel: false
         }));
         // log
-        emit Trust(_approveAddress, _alias, _token, _fixedRate, _amount);
+        emit Trust(_approveAddress, _token, _fixedRate, _amount);
     }
 
 
