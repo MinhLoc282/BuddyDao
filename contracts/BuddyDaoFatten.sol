@@ -1314,21 +1314,19 @@ contract BuddyDao is Ownable, Pausable, ReentrancyGuard, SafeTransfer, Automatio
 
         // check if token address equal to BUSD token address
         if (personalBorrowerInfo.Token == 0xeD24FC36d5Ee211Ea25A80239Fb8C4Cfd80f12Ee) {
-            uint buddyDaoTokenPrice = getTokenPrice(_borrowerAmount);
+            uint serviceFeeInBusd = (_borrowerAmount * ServiceFee) / 1e18;
+            uint serviceFeeInBuddyDao = getTokenPrice(serviceFeeInBusd);
 
-            // Check if the borrower has enough BuddyDaoToken balance to pay the service fee
-            uint serviceFeeInBuddyDao = (_borrowerAmount * ServiceFee * buddyDaoTokenPrice) / 1e36;
             uint borrowerBuddyDaoBalance = IERC20(0x84E13D8aA38a8230DB2dAe46A6555a5DEec532e6).balanceOf(msg.sender);
             if (borrowerBuddyDaoBalance >= serviceFeeInBuddyDao) {
                 // Transfer the service fee in BuddyDaoToken to the service fee address
                 IERC20(0x84E13D8aA38a8230DB2dAe46A6555a5DEec532e6).transferFrom(msg.sender, ServiceFeeAddress, serviceFeeInBuddyDao);
             } else {
                 // Transfer the service fee in BUSD to the service fee address
-                uint serviceFeeInBusd = (_borrowerAmount * ServiceFee) / 1e18;
                 IERC20(personalBorrowerInfo.Token).transferFrom(msg.sender, ServiceFeeAddress, serviceFeeInBusd);
             }
             // Subtract the service fee from the borrower's withdrawal amount in BUSD
-            _borrowerAmount -= (_borrowerAmount * ServiceFee) / 1e18;
+            _borrowerAmount -= serviceFeeInBusd;
         } else {
             // When the token is not BUSD, transfer the service fee in the token to the service fee address
             uint256 serviceFee = (_borrowerAmount * ServiceFee) / 1e18;
