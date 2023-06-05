@@ -36,6 +36,7 @@ contract BuddyDao is Ownable, Pausable, ReentrancyGuard, SafeTransfer, Automatio
         uint256 FixedRate;
         uint256 CreditLine;
         uint256 Amount;
+        //string alias; comment out for now to save gas fee
         // Whether to completely deauthorize
         bool isCancel;
     }
@@ -47,6 +48,7 @@ contract BuddyDao is Ownable, Pausable, ReentrancyGuard, SafeTransfer, Automatio
         uint256 FixedRate;
         uint256 CreditLine;
         uint256 Amount;
+        //string alias; comment out for now to save gas fee
         // Whether to completely deauthorize
         bool isCancel;
     }
